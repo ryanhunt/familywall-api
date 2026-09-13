@@ -19,6 +19,11 @@ import type {
   RawListCollectionResult,
   RawListCreateResult,
   RawListDetailResult,
+  Message,
+  MessageAttachment,
+  MessagePage,
+  GetThreadMessagesOptions,
+  Thread,
 } from "./types.js";
 
 function serialize(data: Record<string, string | number | boolean>): string {
@@ -299,6 +304,38 @@ function matchesListType(value: unknown, requestedType: ListType): boolean {
   return rawType?.toUpperCase() === LIST_TYPE_TO_API[requestedType];
 }
 
+function parseThread(value: unknown, endpoint: string): Thread {
+  if (!isRecord(value)) throw new FamilyWallApiError("FamilyWall returned a malformed thread", endpoint);
+  const threadId = getString(value, ["metaId", "threadId", "id"]);
+  if (!threadId || !Array.isArray(value.participants)) throw new FamilyWallApiError("FamilyWall returned a thread without an identifier or participants", endpoint);
+  return { threadId, participants: value.participants.map((participant) => {
+    if (!isRecord(participant)) throw new FamilyWallApiError("FamilyWall returned a malformed thread participant", endpoint);
+    const accountId = getString(participant, ["accountId"]);
+    const firstName = getString(participant, ["accountFirstname", "firstName"]);
+    if (!accountId || firstName === undefined) throw new FamilyWallApiError("FamilyWall returned a thread participant without an identifier or name", endpoint);
+    const lastReadMessageDate = getString(participant, ["lastReadMessageDate"]);
+    return { accountId, firstName, ...(lastReadMessageDate === undefined ? {} : { lastReadMessageDate }) };
+  }), unreadCount: getNumber(value, ["unreadCount"]) ?? 0, messageCount: getNumber(value, ["messageCount"]) ?? 0 };
+}
+
+function parseAttachment(value: unknown, endpoint: string): MessageAttachment {
+  if (!isRecord(value)) throw new FamilyWallApiError("FamilyWall returned a malformed message attachment", endpoint);
+  const id = getString(value, ["mediaId", "metaId", "id"]);
+  if (!id) throw new FamilyWallApiError("FamilyWall returned an attachment without an identifier", endpoint);
+  const name = getString(value, ["name"]), mimeType = getString(value, ["mimeType"]), size = getNumber(value, ["datasize", "size"]), pictureUrl = getString(value, ["pictureUrl"]), resolutionX = getNumber(value, ["resolutionX"]), resolutionY = getNumber(value, ["resolutionY"]), durationMs = getNumber(value, ["durationMs"]), readyState = getString(value, ["readystate", "readyState"]);
+  return { id, ...(name === undefined ? {} : { name }), ...(mimeType === undefined ? {} : { mimeType }), ...(size === undefined ? {} : { size }), ...(pictureUrl === undefined ? {} : { pictureUrl }), ...(resolutionX === undefined ? {} : { resolutionX }), ...(resolutionY === undefined ? {} : { resolutionY }), ...(durationMs === undefined ? {} : { durationMs }), ...(readyState === undefined ? {} : { readyState }) };
+}
+
+function parseMessage(value: unknown, endpoint: string): Message {
+  if (!isRecord(value)) throw new FamilyWallApiError("FamilyWall returned a malformed message", endpoint);
+  const id = getString(value, ["metaId", "messageId", "id"]);
+  if (!id) throw new FamilyWallApiError("FamilyWall returned a message without an identifier", endpoint);
+  const medias = value.medias;
+  if (medias !== undefined && !Array.isArray(medias)) throw new FamilyWallApiError("FamilyWall returned malformed message attachments", endpoint);
+  const text = getString(value, ["text"]), authorId = getString(value, ["fromId", "authorAccountId"]), authorName = getString(value, ["authorFirstname"]), creationDate = getString(value, ["creationDate"]), type = getString(value, ["type"]);
+  return { id, ...(text === undefined ? {} : { text }), ...(authorId === undefined ? {} : { authorId }), ...(authorName === undefined ? {} : { authorName }), ...(creationDate === undefined ? {} : { creationDate }), ...(type === undefined ? {} : { type }), attachments: (medias ?? []).map((media) => parseAttachment(media, endpoint)) };
+}
+
 export default class FamilyWallClient {
   private readonly baseUrl: string;
   private readonly fetcher: typeof fetch;
@@ -365,7 +402,8 @@ export default class FamilyWallClient {
 
   private async readApiResponse<T>(
     endpoint: string,
-    response: Response
+    response: Response,
+    redactApiError = false
   ): Promise<T> {
     if (!response.ok) {
       throw new FamilyWallApiError(
@@ -404,9 +442,9 @@ export default class FamilyWallClient {
             ? error.ex.message
             : "Unknown FamilyWall API error";
       throw new FamilyWallApiError(
-        `FamilyWall API error: ${message}`,
+        redactApiError ? "FamilyWall API returned an error" : `FamilyWall API error: ${message}`,
         endpoint,
-        { status: response.status, apiError: error }
+        redactApiError ? { status: response.status } : { status: response.status, apiError: error }
       );
     }
 
@@ -674,6 +712,46 @@ export default class FamilyWallClient {
       };
     }
     return parseListSummary(created, input.name, input.type, "taskcreatelist");
+  }
+
+  /**
+   * Fetches the account's current thread summaries. This is intentionally not a
+   * Family facade method: the reference protocol does not establish family scope.
+   */
+  async getThreads(): Promise<Thread[]> {
+    const response = await this.apiFetch("imthreadlist", {
+      partnerScope: "Family",
+      a00isLoggedFamily: false,
+    });
+    const result = await this.readApiResponse<unknown>("imthreadlist", response, true);
+    if (!Array.isArray(result)) {
+      throw new FamilyWallApiError("FamilyWall returned a malformed thread collection", "imthreadlist");
+    }
+    return result.map((thread) => parseThread(thread, "imthreadlist"));
+  }
+
+  /** Fetches one bounded message page; ordering and continuation are not established. */
+  async getThreadMessages(
+    threadId: string,
+    options: GetThreadMessagesOptions = {}
+  ): Promise<MessagePage> {
+    assertNonBlank(threadId, "threadId");
+    const limit = options.limit ?? 20;
+    if (!Number.isInteger(limit) || limit <= 0) {
+      throw new FamilyWallValidationError("limit must be a positive integer");
+    }
+    const response = await this.apiFetch("immessagelist2", {
+      partnerScope: "Family",
+      a00threadId: threadId,
+      a00limit: limit,
+    });
+    const result = await this.readApiResponse<unknown>("immessagelist2", response, true);
+    const page = Array.isArray(result) ? { datas: result } : result;
+    if (!isRecord(page) || !Array.isArray(page.datas)) {
+      throw new FamilyWallApiError("FamilyWall returned a malformed message page", "immessagelist2");
+    }
+    const size = getNumber(page, ["size"]), count = getNumber(page, ["count"]), start = getNumber(page, ["start"]);
+    return { messages: page.datas.map((message) => parseMessage(message, "immessagelist2")), ...(size === undefined ? {} : { size }), ...(count === undefined ? {} : { count }), ...(start === undefined ? {} : { start }) };
   }
 
   async getAllFamily(): Promise<AllFamilyResponse> {
