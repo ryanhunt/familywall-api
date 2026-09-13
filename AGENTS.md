@@ -10,21 +10,21 @@ not drift apart.
 - The project is a fork of [CodingButter/familywall-api](https://github.com/CodingButter/familywall-api).
 - Preserve that attribution and the MIT license. Do not rewrite history or
   remove original copyright notices.
-- The default branch is `master`. Treat it as protected even if GitHub branch
+- The default branch is `main`. Treat it as protected even if GitHub branch
   protection is not enabled.
 
 ## Required change workflow
 
 Every change must be isolated in a new branch and delivered as its own PR:
 
-1. Start from an up-to-date `master` and inspect the worktree first. Never
-   commit directly to `master`.
+1. Start from an up-to-date `main` and inspect the worktree first. Never
+   commit directly to `main`.
 2. Create one branch for this request using `codex/<short-slug>` or
    `claude/<short-slug>`. Do not reuse a branch from another task.
 3. Keep the branch focused and run `pnpm run check` before committing.
 4. Review the diff for secrets, personal data, generated output, and accidental
    attribution changes.
-5. Push the branch and open one PR against `master` using the repository PR
+5. Push the branch and open one PR against `main` using the repository PR
    template. Pushing requires the user's already-configured GitHub access; do
    not create, copy, print, or persist credentials or tokens.
 6. Do not merge the PR unless the user explicitly asks. Completion means the
