@@ -75,6 +75,8 @@ Returned by `client.getFamily()`. Provides methods to access and manage family d
 - **getLists(options?)** - Retrieve family list summaries. Pass `{ type: "shopping" }`, `{ type: "todo" }`, or `{ type: "other" }` to filter locally.
 - **getList(listId)** - Retrieve one list and its items.
 - **createList(input)** - Create a shopping, todo, or other list and return its server-assigned identifier.
+- **addListItem(listId, input)** - Add an item to a list with input `{ text, quantity? }`, where quantity is optional and may be a string or number.
+- **setListItemCompleted(itemId, completed)** - Set an item's completion state explicitly rather than toggling it; takes an item identifier only, no list identifier.
 
 #### Calendar Example
 
