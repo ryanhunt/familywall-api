@@ -139,6 +139,80 @@ export interface EventSyncResponse {
   a00: ApiResponseWrapper<EventDataPayload>
 }
 
+export interface RawListCategory {
+  name?: string;
+  [key: string]: unknown;
+}
+
+export interface RawListItem {
+  metaId?: string;
+  taskId?: string;
+  id?: string;
+  text?: string;
+  name?: string;
+  title?: string;
+  complete?: boolean | string;
+  completed?: boolean | string;
+  checked?: boolean | string;
+  isChecked?: boolean | string;
+  quantity?: string | number;
+  accountId?: string;
+  categories?: Array<RawListCategory | string>;
+  creationDate?: string;
+  [key: string]: unknown;
+}
+
+export interface RawList {
+  metaId?: string;
+  taskListId?: string;
+  listId?: string;
+  id?: string;
+  name?: string;
+  type?: string;
+  taskListType?: string;
+  itemCount?: number | string;
+  checkedCount?: number | string;
+  color?: string;
+  items?: RawListItem[];
+  tasks?: RawListItem[];
+  listItems?: RawListItem[];
+  [key: string]: unknown;
+}
+
+export interface RawApiError {
+  message?: string;
+  [key: string]: unknown;
+}
+
+export interface RawApiResult<T> {
+  r: T;
+}
+
+export interface RawApiCall<T> {
+  r?: RawApiResult<T>;
+  ex?: {
+    ex?: RawApiError | string;
+    [key: string]: unknown;
+  };
+  cn?: string;
+  [key: string]: unknown;
+}
+
+export interface RawApiResponse<T> {
+  a00?: RawApiCall<T>;
+  [key: string]: unknown;
+}
+
+export type RawListCollectionResult = RawList[] | {
+  lists?: RawList[];
+  taskLists?: RawList[];
+  [key: string]: unknown;
+};
+
+export type RawListDetailResult = RawList | RawListItem[];
+
+export type RawListCreateResult = RawList | string | RawList[];
+
 export interface AllFamilyResponse {
   a00: ApiResponseWrapper<FamilyDataPayload>;
   a01?: ApiResponseWrapper<Record<string, RawProfile>>;
@@ -242,4 +316,49 @@ export interface ProfileDetails {
 
 export interface FamilyWallClientOptions {
   timezone?: string;
+  fetch?: typeof fetch;
+}
+
+// ===== Lists =====
+
+export type ListType = "shopping" | "todo" | "other";
+
+export interface GetListsOptions {
+  type?: ListType;
+}
+
+export interface CreateListRequest {
+  name: string;
+  type: ListType;
+}
+
+export type ListTypeValue = ListType | (string & {});
+
+export interface ListSummary {
+  id: string;
+  name: string;
+  type?: ListTypeValue;
+  itemCount?: number;
+  checkedCount?: number;
+  color?: string;
+}
+
+export interface ListItem {
+  id: string;
+  text: string;
+  completed: boolean;
+  quantity?: string | number;
+  authorId?: string;
+  categories?: string[];
+  creationDate?: string;
+}
+
+export interface ListDetails {
+  id: string;
+  name?: string;
+  type?: ListTypeValue;
+  itemCount?: number;
+  checkedCount?: number;
+  color?: string;
+  items: ListItem[];
 }

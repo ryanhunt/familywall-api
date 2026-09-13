@@ -15,6 +15,10 @@ import type {
   ProfileDetails,
   CalendarEvent,
   CreateEventRequest,
+  CreateListRequest,
+  GetListsOptions,
+  ListDetails,
+  ListSummary,
 } from "./types.js";
 
 export default class Family {
@@ -43,6 +47,18 @@ export default class Family {
   async getCalendarEvents(): Promise<CalendarEvent[]> {
     const calendar = await this.client.getCalendar(`calendar/${this.familyId}`)
     return calendar.updatedCreated;
+  }
+
+  async getLists(options?: GetListsOptions): Promise<ListSummary[]> {
+    return await this.client.getLists(options);
+  }
+
+  async getList(listId: string): Promise<ListDetails> {
+    return await this.client.getList(listId);
+  }
+
+  async createList(input: CreateListRequest): Promise<ListSummary> {
+    return await this.client.createList(input);
   }
 
   getMembers(): Member[] {

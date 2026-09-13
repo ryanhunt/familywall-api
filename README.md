@@ -66,6 +66,9 @@ Returned by `client.getFamily()`. Provides methods to access and manage family d
 - **createCalendarEvent(event)** - Create an event on the family calendar.
 - **deleteCalendarEvent(eventId)** - Delete an event from the family calendar.
 - **updateCalendarEvent(eventId, event)** - Update an event on the family calendar.
+- **getLists(options?)** - Retrieve family list summaries. Pass `{ type: "shopping" }`, `{ type: "todo" }`, or `{ type: "other" }` to filter locally.
+- **getList(listId)** - Retrieve one list and its items.
+- **createList(input)** - Create a shopping, todo, or other list and return its server-assigned identifier.
 
 #### Calendar Example
 
@@ -101,6 +104,23 @@ await family.updateCalendarEvent(newEvent.eventId, {
 await family.deleteCalendarEvent(newEvent.eventId);
 ```
 
+#### Lists Example
+
+```typescript
+const lists = await family.getLists();
+const shoppingLists = await family.getLists({ type: "shopping" });
+
+const newList = await family.createList({
+  name: "Weekly groceries",
+  type: "shopping",
+});
+
+const list = await family.getList(newList.id);
+console.log(list.items);
+```
+
+List collection responses contain summaries. `getList` returns the list's items when the server provides them. The supported creation types are `shopping`, `todo`, and `other`; unknown types returned by FamilyWall are preserved as returned. List names must contain at least one non-whitespace character, and list methods throw `FamilyWallApiError` for HTTP failures, API errors, invalid JSON, or malformed responses.
+
 ---
 
 ## Types
@@ -114,6 +134,9 @@ import type {
   CalendarEvent,
   CreateEventRequest,
   PremiumDetails,
+  ListSummary,
+  ListDetails,
+  CreateListRequest,
   // ... and more
 } from "familywall-api";
 ```
