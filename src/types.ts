@@ -363,6 +363,21 @@ export interface ListDetails {
   items: ListItem[];
 }
 
+export interface AddListItemRequest {
+  text: string;
+  quantity?: string | number;
+}
+
+// ===== Calendar ranges =====
+
+export interface GetCalendarRangeOptions {
+  /** Date-only values are resolved against the client's configured timezone. */
+  startDate?: Date | string;
+  endDate?: Date | string;
+  /** Positive whole number of days from `startDate`, or from now when omitted. */
+  days?: number;
+}
+
 // ===== Messaging =====
 
 export interface MessageAttachment {
@@ -397,4 +412,24 @@ export interface MessagePage {
   size?: number;
   count?: number;
   start?: number;
+}
+
+export interface SendMessageRequest {
+  text: string;
+}
+
+export interface DownloadAttachmentOptions {
+  signal?: AbortSignal;
+  /** Rejects the download once this many bytes have been read. */
+  maxBytes?: number;
+}
+
+export interface AttachmentDownload {
+  url: string;
+  mimeType?: string;
+  /** Content-Length when the server supplies one; it is not enforced as truth. */
+  size?: number;
+  /** Server-supplied name stripped to a bare basename; still untrusted. */
+  filename?: string;
+  body: ReadableStream<Uint8Array>;
 }

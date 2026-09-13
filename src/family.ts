@@ -15,9 +15,12 @@ import type {
   ProfileDetails,
   CalendarEvent,
   CreateEventRequest,
+  AddListItemRequest,
   CreateListRequest,
+  GetCalendarRangeOptions,
   GetListsOptions,
   ListDetails,
+  ListItem,
   ListSummary,
 } from "./types.js";
 
@@ -44,9 +47,20 @@ export default class Family {
     return await this.client.deleteEvent(eventId);
   }
 
-  async getCalendarEvents(): Promise<CalendarEvent[]> {
-    const calendar = await this.client.getCalendar(`calendar/${this.familyId}`)
-    return calendar.updatedCreated;
+  /**
+   * Without options this keeps the original unfiltered sync request. With a
+   * range it routes to the interval endpoint, which is a different server
+   * operation rather than a filter applied to the sync result.
+   */
+  async getCalendarEvents(options?: GetCalendarRangeOptions): Promise<CalendarEvent[]> {
+    if (options === undefined) {
+      const calendar = await this.client.getCalendar(`calendar/${this.familyId}`)
+      return calendar.updatedCreated;
+    }
+    return await this.client.getCalendarEventsInRange(
+      `calendar/${this.familyId}`,
+      options
+    );
   }
 
   async getLists(options?: GetListsOptions): Promise<ListSummary[]> {
@@ -59,6 +73,14 @@ export default class Family {
 
   async createList(input: CreateListRequest): Promise<ListSummary> {
     return await this.client.createList(input);
+  }
+
+  async addListItem(listId: string, input: AddListItemRequest): Promise<ListItem> {
+    return await this.client.addListItem(listId, input);
+  }
+
+  async setListItemCompleted(itemId: string, completed: boolean): Promise<void> {
+    await this.client.setListItemCompleted(itemId, completed);
   }
 
   getMembers(): Member[] {

@@ -1,8 +1,11 @@
 # Expanded FamilyWall API implementation plan
 
-Status: partial implementation; this PR remains a draft. Source-backed,
-read-only message access is implemented. Operations whose server contracts are
-not established remain explicitly blocked rather than guessed.
+Status: partial implementation. Every operation the reference client actually
+source-backs is now implemented: list-item add and completion, calendar
+date-range queries, message sending, and attachment downloads. Operations whose
+server contracts are not established remain explicitly blocked rather than
+guessed — item edit/delete, message pagination, planned meals, and recipes.
+See [`remaining-api-support.md`](./remaining-api-support.md) for that split.
 
 ## Goal and baseline
 
@@ -118,15 +121,22 @@ Proposed methods: `addListItem(listId, input)`,
 `setListItemCompleted(listId, itemId, completed)`,
 `updateListItem(listId, itemId, patch)`, and `deleteListItem(listId, itemId)`.
 
-- [ ] Define add/edit inputs and verified optional quantity/category fields.
-  Require a nonempty edit patch; distinguish omitted fields from clearing them.
-- [ ] Use an explicit completion boolean so repeating a request does not invert
+Delivered: `addListItem` and `setListItemCompleted`. Edit and delete remain
+blocked; no endpoint for either appears in the reference client, and the
+proposed `updateListItem`/`deleteListItem` names are therefore not implemented.
+
+- [x] Define add inputs and the verified optional quantity field. Edit inputs
+  remain undefined pending an endpoint; category fields are not established.
+- [x] Use an explicit completion boolean so repeating a request does not invert
   state. Cover both completion and uncompletion; never implement a blind toggle.
-- [ ] Preserve item/list IDs exactly and verify which identifiers each endpoint
+- [x] Preserve item/list IDs exactly and verify which identifiers each endpoint
   accepts. Reuse existing normalization where the response contains an item.
-- [ ] Test exact encoded payloads, Unicode and punctuation, each mutation result,
+  `taskmark` is documented only with `a00taskId`, so `setListItemCompleted`
+  accepts no list identifier rather than accepting one it would not send.
+- [x] Test exact encoded payloads, Unicode and punctuation, each mutation result,
   unknown/deleted items, denied operations, malformed responses, and invalid input
   making zero requests. Keep first-slice list tests unchanged and passing.
+- [ ] Edit and delete items. Blocked: no endpoint evidence.
 
 ### 2. Calendar date-range filtering
 
@@ -139,24 +149,31 @@ endpoint, and adapt its response without fabricating sync metadata. If that cann
 preserve the existing client's return contract, add `getCalendarEventsInRange`
 to the client and route the optional Family facade range through that method.
 
-- [ ] Define `startDate`/`endDate` inputs, wire conversion, whether one-sided
+Delivered as `getCalendarEventsInRange` with an optional range on
+`Family.getCalendarEvents`. The interval endpoint returns an event collection
+rather than a sync payload, so it could not preserve `getCalendar`'s return
+contract and the separate client method named in this section was used instead.
+
+- [x] Define `startDate`/`endDate` inputs, wire conversion, whether one-sided
   ranges are supported, and inclusivity from reference evidence. Reject invalid
   or reversed ranges. Specify treatment of date-only values and timezone offsets.
   Use the client's configured timezone to interpret date-only/day-count inputs,
   then convert instants to the verified wire format; preserve explicit offsets.
   Never borrow the London timezone hard-coded in existing calendar mutations.
-- [ ] Provide a `days` convenience option corresponding to the guide's CLI,
+- [x] Provide a `days` convenience option corresponding to the guide's CLI,
   with a documented anchor, positive integer validation, and explicit conflict
   rules with date bounds. Inject/fix the clock in tests. The guide's default
   timestamps use UTC day bounds ending at `23:59:59.000Z`; verify precision and
   boundary behavior rather than losing the final fractional second of a day.
-- [ ] Preserve the existing unfiltered request and response behavior when options
+- [x] Preserve the existing unfiltered request and response behavior when options
   are omitted. Encode `a00from`/`a00to` only on the verified interval request.
 - [ ] Confirm whether the server filters occurrences or series and includes events
-  that overlap the interval. Do not silently replace server filtering with local
+  that overlap the interval. Unresolved; documented as a server limitation rather
+  than replaced with local filtering. Do not silently replace server filtering with local
   filtering of an incomplete sync result or claim recurrence expansion we lack.
-- [ ] Test exact boundaries, overlapping events, all-day events, recurring events,
-  explicit offsets, a DST transition, empty results, and facade forwarding.
+- [x] Test exact boundaries, explicit offsets, a DST transition, empty results,
+  and facade forwarding. Overlapping, all-day, and recurring behavior is
+  server-side and untested pending the item above.
   Document server limitations and keep range queries distinct from sync cursors.
 
 ### 3. Full messaging
@@ -169,19 +186,21 @@ Proposed methods: `getThreads(options?)`,
 - [x] Fetch threads afresh and expose one bounded history page. `getThreads()` is
   client-only because `imthreadlist` family scoping is not established; it must
   not be represented as a particular family's data.
-- [ ] Implement supported message pagination and ordering.
+- [ ] Implement supported message pagination and ordering. Still blocked: the
+  reference client establishes no request-side continuation.
   Expose continuation only when supported by evidence. Avoid implicit unbounded
   history fetching; specify default page size and exhaustion behavior.
-- [ ] Implement text sending with verified recipient/thread fields and a useful
-  server acknowledgement. Confirm whether a new-thread operation is necessary to
+- [x] Implement text sending with verified recipient/thread fields and a useful
+  server acknowledgement. Delivered as `sendMessage`; a bare identifier result is
+  returned as an identifier rather than expanded into a fabricated message. Confirm whether a new-thread operation is necessary to
   send to participants; include it only if the protocol requires it for this scope.
 - [ ] Reading history must not silently mark messages read unless inseparable from
   the server operation; investigate and document that behavior.
 - [x] Test bounded-page form encoding, attachment metadata, participant mapping,
   invalid input, malformed data, and redacted API errors with injected fetch.
-- [ ] Test multiple/empty pages, ordering, text encoding,
-  invalid input, permission/session errors, and ambiguous send failures. Verify
-  exactly one write request and legacy `getMessages()` compatibility.
+- [x] Test text encoding, invalid input, permission/session errors, and ambiguous
+  send failures, verifying exactly one write request. Multiple-page and ordering
+  tests remain blocked with pagination itself.
 
 Real-time subscriptions, message editing/deletion, reactions, and media uploads
 are outside this scope; message history and text sending satisfy this slice.
@@ -203,21 +222,23 @@ Document any bounded history scan and distinguish “not found in this page” f
 “message has no attachments”; a helper cannot promise arbitrary message lookup
 until history continuation or a direct lookup contract is established.
 
-- [ ] Model ID, media kind, MIME type, filename, size, original/download location,
+- [x] Model ID, media kind, MIME type, filename, size, original/download location,
   and preview location where supplied. Keep unknown media kinds representable.
 - [ ] Resolve original photo, audio, and video resources, including missing or
-  expired references. Establish authentication requirements per media host.
-- [ ] Use a dedicated binary GET path through injected fetch. Do not send the API
+  expired references. Partially delivered: downloads resolve `pictureUrl` and
+  credentials are restricted to FamilyWall hosts, but whether a distinct
+  original-versus-preview URL exists is still unresolved.
+- [x] Use a dedicated binary GET path through injected fetch. Do not send the API
   form body or blindly reuse cookie/CSRF headers for third-party URLs. Validate
   allowed origins and redirect targets before forwarding credentials; reject
   unexpected schemes, userinfo, and destinations.
-- [ ] Prefer a streaming result with metadata and `AbortSignal`; define a bounded
+- [x] Prefer a streaming result with metadata and `AbortSignal`; define a bounded
   download option and enforce it while reading, including when Content-Length is
   absent or wrong. Leave filesystem destinations to callers, avoiding path traversal
   through server filenames and buffering entire videos by default.
-- [ ] Test photo/audio/video bytes, metadata, cancellation, size limits, HTTP
-  failures, redirects, expired links, and absence of credential forwarding to
-  untrusted hosts. Handle unknown MIME types without mislabelling HTML errors as
+- [x] Test attachment bytes, metadata, cancellation, size limits, HTTP failures,
+  redirects, expired links, and absence of credential forwarding to untrusted
+  hosts. Handle unknown MIME types without mislabelling HTML errors as
   successful media. No fixture uses real photos or recorded voices.
 
 ### 5. Planned meals
@@ -265,15 +286,19 @@ and `addRecipeIngredientsToList(recipeId, listId, options?)`.
 
 ### 7. Integration, documentation, and readiness
 
-- [ ] Add dedicated domain tests under `test/`, using the existing Node test
+- [x] Add dedicated domain tests under `test/`, using the existing Node test
   runner and injected fetch. Exercise facade delegation and exported type usage.
-- [ ] Add README examples for all six areas with placeholders only, including
-  pagination, completion/uncompletion, download streaming, import lifecycle, and
-  calendar boundary semantics. Explain legacy thread summaries versus messages.
-- [ ] Run `pnpm install --frozen-lockfile` and `pnpm run check` after the final
+  Added `test/list-items.test.ts`, `test/calendar-range.test.ts`, and
+  `test/message-writes.test.ts` over a shared `test/support.ts` helper that
+  rejects unanticipated requests. First-slice tests are unchanged.
+- [x] Add README examples for the delivered areas with placeholders only,
+  including completion/uncompletion, download streaming, and calendar boundary
+  semantics. Explain legacy thread summaries versus messages. Pagination and
+  import lifecycle are omitted because both remain blocked.
+- [x] Run `pnpm install --frozen-lockfile` and `pnpm run check` after the final
   implementation. Review the diff for secrets, personal data, generated output,
   and attribution changes; preserve the original MIT license and fork credit.
-- [ ] Update this plan with resolved contracts and completed checkboxes, update
+- [x] Update this plan with resolved contracts and completed checkboxes, update
   the same PR description to describe actual behavior, and mark the draft ready
   only when required scope and checks are complete. Do not merge without a request.
 

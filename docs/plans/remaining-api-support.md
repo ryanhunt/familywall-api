@@ -1,6 +1,11 @@
 # Remaining FamilyWall API support: delivery sequencing
 
-Status: planning only. No implementation in this PR.
+Status: Tier A implemented in this PR. Tier B remains blocked.
+
+The original intent was to plan here and implement across separate PRs. At the
+repository owner's direction the Tier A implementation was folded into this same
+PR instead, so the sequencing below is a record of how the work was ordered
+rather than a forecast of PRs still to come.
 
 ## Purpose
 
@@ -60,6 +65,33 @@ any verification gate the expanded plan sets for that operation.
 Tier B covers the majority of the originally requested scope. A page name or a
 CLI command name does not establish a working API. Per the expanded plan, these
 operations stay blocked rather than being implemented against guessed endpoints.
+
+## Delivered
+
+All five Tier A operations shipped, together with their Family facade methods,
+exported types, README examples, and tests:
+
+| Method | Endpoint |
+| --- | --- |
+| `addListItem(listId, input)` | `taskcreate` |
+| `setListItemCompleted(itemId, completed)` | `taskmark` |
+| `getCalendarEventsInRange(calendarId, options)` | `evtlistinterval` |
+| `sendMessage(threadId, input)` | `imsend` |
+| `downloadAttachment(attachment, options?)` | authenticated GET |
+
+Two signatures diverged from the names proposed in the expanded plan, in both
+cases to follow the wire contract rather than the proposal:
+
+`setListItemCompleted` takes no list identifier. `taskmark` is documented only
+with `a00taskId`, and accepting a `listId` the client would never send would
+imply a scoping guarantee that does not exist.
+
+Ranged calendar reads became `getCalendarEventsInRange` rather than an optional
+argument on `getCalendar`. The interval endpoint returns an event collection
+instead of a sync payload, so overloading `getCalendar` would have meant either
+breaking its return contract or fabricating sync metadata around the result.
+`Family.getCalendarEvents()` keeps its no-argument behavior exactly and routes
+to the new method only when a range is supplied.
 
 ## PR sequence
 
