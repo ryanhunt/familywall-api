@@ -3,7 +3,9 @@
 
 A TypeScript client for interacting with the FamilyWall API.
 
-Forked from [CodingButter/familywall-api](https://github.com/CodingButter/familywall-api).
+Forked from [Tomsoz/familywall-api](https://github.com/Tomsoz/familywall-api) and [CodingButter/familywall-api](https://github.com/CodingButter/familywall-api).
+
+This client now supports read-only messaging (threads and message history) and family lists (shopping, todo, and other types) in addition to the original calendar and family-profile features.
 
 ## Installation
 
