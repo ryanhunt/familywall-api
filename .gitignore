@@ -1,8 +1,14 @@
 node_modules
+.pnpm-store
 dist
-*.env
-*.lock
+.env
+.env.*
+!.env.example
+*.local
+*.pem
+*.key
+credentials*.json
+service-account*.json
 events.json
 familySettings.json
 members.json
-git-filter-repo
