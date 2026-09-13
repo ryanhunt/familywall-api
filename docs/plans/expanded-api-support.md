@@ -1,7 +1,8 @@
 # Expanded FamilyWall API implementation plan
 
-Status: proposed; this PR contains planning only and remains open as a draft for
-implementation on the same branch. No feature below is implemented by this plan.
+Status: partial implementation; this PR remains a draft. Source-backed,
+read-only message access is implemented. Operations whose server contracts are
+not established remain explicitly blocked rather than guessed.
 
 ## Goal and baseline
 
@@ -163,9 +164,12 @@ to the client and route the optional Family facade range through that method.
 Proposed methods: `getThreads(options?)`,
 `getThreadMessages(threadId, options?)`, and `sendMessage(threadId, input)`.
 
-- [ ] Define thread, message, sender, timestamp, attachment-reference, and history
+- [x] Define thread, message, sender, timestamp, attachment-reference, and history
   page types. Preserve the existing `Thread` shape for the legacy accessor.
-- [ ] Fetch threads afresh; implement supported message pagination and ordering.
+- [x] Fetch threads afresh and expose one bounded history page. `getThreads()` is
+  client-only because `imthreadlist` family scoping is not established; it must
+  not be represented as a particular family's data.
+- [ ] Implement supported message pagination and ordering.
   Expose continuation only when supported by evidence. Avoid implicit unbounded
   history fetching; specify default page size and exhaustion behavior.
 - [ ] Implement text sending with verified recipient/thread fields and a useful
@@ -173,12 +177,22 @@ Proposed methods: `getThreads(options?)`,
   send to participants; include it only if the protocol requires it for this scope.
 - [ ] Reading history must not silently mark messages read unless inseparable from
   the server operation; investigate and document that behavior.
-- [ ] Test multiple/empty pages, ordering, participant mapping, text encoding,
+- [x] Test bounded-page form encoding, attachment metadata, participant mapping,
+  invalid input, malformed data, and redacted API errors with injected fetch.
+- [ ] Test multiple/empty pages, ordering, text encoding,
   invalid input, permission/session errors, and ambiguous send failures. Verify
   exactly one write request and legacy `getMessages()` compatibility.
 
 Real-time subscriptions, message editing/deletion, reactions, and media uploads
 are outside this scope; message history and text sending satisfy this slice.
+
+Current evidence is limited to the public Snowsand client v1.3.0, retrieved on
+2026-09-13. It establishes `imthreadlist` with `a00isLoggedFamily=false` and
+`immessagelist2` with `a00threadId`/`a00limit`, returning either an array or an
+object containing `datas`, `size`, `count`, and `start`. It does not establish
+family scoping, page continuation, ordering, read-state behavior, or mutation
+acknowledgement semantics. Consequently writes and facade delegation remain
+blocked without further public protocol evidence.
 
 ### 4. Message attachments and downloads
 

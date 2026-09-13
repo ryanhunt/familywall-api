@@ -46,6 +46,8 @@ const client = new FamilyWallClient({ timezone: "Europe/London" });
 - **getWebSocketUrl()** - Retrieve the WebSocket URL for live updates.
 - **getAllFamily()** - Fetch all family-related data, including members, profiles, and settings.
 - **getFamily()** - Returns a `Family` instance populated with family data.
+- **getThreads()** - Fetch current account thread summaries. This is distinct from the cached `Family.getMessages()` summaries and is not exposed on `Family` because FamilyWall's family-scoping contract is unverified.
+- **getThreadMessages(threadId, options?)** - Fetch one bounded message-history page (default limit: 20), including attachment metadata. Ordering, continuation, and read-state effects are not yet established.
 
 ---
 
@@ -120,6 +122,20 @@ console.log(list.items);
 ```
 
 List collection responses contain summaries. `getList` returns the list's items when the server provides them. The supported creation types are `shopping`, `todo`, and `other`; unknown types returned by FamilyWall are preserved as returned. List names must contain at least one non-whitespace character, and list methods throw `FamilyWallApiError` for HTTP failures, API errors, invalid JSON, or malformed responses.
+
+#### Messaging example
+
+```typescript
+// `getMessages()` remains the legacy synchronous accessor for cached summaries.
+const threads = await client.getThreads();
+const page = await client.getThreadMessages(threads[0]!.threadId, { limit: 20 });
+
+for (const message of page.messages) {
+  console.log(message.text, message.attachments);
+}
+```
+
+Message reads use the public reference protocol but have not been verified against a live account. The library does not follow pagination continuations, download attachment URLs, or send messages until those contracts are established.
 
 ---
 

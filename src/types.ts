@@ -285,7 +285,7 @@ export interface FamilyCoverMedia {
 export interface ThreadParticipant {
   accountId: string;
   firstName: string;
-  lastReadMessageDate: string;
+  lastReadMessageDate?: string;
 }
 
 export interface Thread {
@@ -361,4 +361,40 @@ export interface ListDetails {
   checkedCount?: number;
   color?: string;
   items: ListItem[];
+}
+
+// ===== Messaging =====
+
+export interface MessageAttachment {
+  id: string;
+  name?: string;
+  mimeType?: string;
+  size?: number;
+  pictureUrl?: string;
+  resolutionX?: number;
+  resolutionY?: number;
+  durationMs?: number;
+  readyState?: string;
+}
+
+export interface Message {
+  id: string;
+  text?: string;
+  authorId?: string;
+  authorName?: string;
+  creationDate?: string;
+  type?: string;
+  attachments: MessageAttachment[];
+}
+
+export interface GetThreadMessagesOptions {
+  /** Number of messages to request; the server continuation contract is unknown. */
+  limit?: number;
+}
+
+export interface MessagePage {
+  messages: Message[];
+  size?: number;
+  count?: number;
+  start?: number;
 }
