@@ -7,6 +7,8 @@ Forked from [Tomsoz/familywall-api](https://github.com/Tomsoz/familywall-api) an
 
 This client now supports messaging (threads, message history, text sending, and attachment downloads), family lists including item add and completion, and date-range calendar queries, in addition to the original calendar and family-profile features.
 
+Not yet supported: editing or deleting list items, message pagination beyond a single bounded page, planned meals, and recipes. These are not omissions of effort — no endpoint for them appears in the available reference material, and implementing against a guessed endpoint risks destructive behavior on real family data. See [`docs/plans/remaining-api-support.md`](./docs/plans/remaining-api-support.md) for the evidence behind each.
+
 ## Installation
 
 ```bash
@@ -120,7 +122,7 @@ const nextWeek = await family.getCalendarEvents({
 });
 ```
 
-Calling `getCalendarEvents()` with no arguments keeps the original unfiltered sync request and its existing return value. Supplying a range routes to a different server operation instead, so the two are not interchangeable.
+Calling `getCalendarEvents()` with no arguments keeps the original unfiltered sync request and its existing return value. Supplying a range routes to a different server operation instead, so the two are not interchangeable. The underlying client method is `client.getCalendarEventsInRange(calendarId, options)`, which is available directly when you need to target a calendar other than the family's own.
 
 Date-only values such as `"2026-03-01"` are resolved against the client's configured `timezone`, covering the whole local day from `00:00:00.000` to `23:59:59.999`. Values carrying an explicit offset, and `Date` instances, are used as the exact instants they already name. `days` counts forward from `startDate`, or from now when that is omitted, and cannot be combined with `endDate`. Reversed ranges are rejected before any request is made. Whether the server filters occurrences or whole series, and how it treats events overlapping a boundary, is not established; this is the server's own filtering and is not supplemented locally.
 
