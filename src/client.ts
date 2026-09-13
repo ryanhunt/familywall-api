@@ -9,8 +9,13 @@ import type {
   CalendarEvent,
   CreateEventRequest,
   EventCreateResponse,
+  AddListItemRequest,
+  AttachmentDownload,
   CreateListRequest,
+  DownloadAttachmentOptions,
+  GetCalendarRangeOptions,
   GetListsOptions,
+  SendMessageRequest,
   ListDetails,
   ListItem,
   ListSummary,
@@ -336,6 +341,190 @@ function parseMessage(value: unknown, endpoint: string): Message {
   return { id, ...(text === undefined ? {} : { text }), ...(authorId === undefined ? {} : { authorId }), ...(authorName === undefined ? {} : { authorName }), ...(creationDate === undefined ? {} : { creationDate }), ...(type === undefined ? {} : { type }), attachments: (medias ?? []).map((media) => parseAttachment(media, endpoint)) };
 }
 
+const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Offset between a timezone's wall clock and UTC at a given instant. */
+function timezoneOffsetMs(instant: Date, timeZone: string): number {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+  const parts: Record<string, string> = {};
+  for (const part of formatter.formatToParts(instant)) {
+    if (part.type !== "literal") {
+      parts[part.type] = part.value;
+    }
+  }
+  const hour = Number(parts.hour) === 24 ? 0 : Number(parts.hour);
+  const asUtc = Date.UTC(
+    Number(parts.year),
+    Number(parts.month) - 1,
+    Number(parts.day),
+    hour,
+    Number(parts.minute),
+    Number(parts.second),
+    instant.getUTCMilliseconds()
+  );
+  return asUtc - instant.getTime();
+}
+
+/**
+ * Resolves a wall-clock reading in `timeZone` to an instant. The second pass
+ * re-reads the offset at the candidate instant so DST transitions resolve to
+ * the offset actually in force rather than the one at the UTC guess.
+ */
+function zonedWallClockToInstant(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  second: number,
+  milliseconds: number,
+  timeZone: string
+): Date {
+  const guess = Date.UTC(year, month - 1, day, hour, minute, second, milliseconds);
+  const firstPass = new Date(guess - timezoneOffsetMs(new Date(guess), timeZone));
+  return new Date(guess - timezoneOffsetMs(firstPass, timeZone));
+}
+
+function resolveRangeBoundary(
+  value: Date | string,
+  field: string,
+  timeZone: string,
+  endOfDay: boolean
+): Date {
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) {
+      throw new FamilyWallValidationError(`${field} must be a valid date`);
+    }
+    return value;
+  }
+  assertNonBlank(value, field);
+  if (DATE_ONLY_PATTERN.test(value)) {
+    const [year, month, day] = value.split("-").map(Number) as [
+      number,
+      number,
+      number,
+    ];
+    const resolved = zonedWallClockToInstant(
+      year,
+      month,
+      day,
+      endOfDay ? 23 : 0,
+      endOfDay ? 59 : 0,
+      endOfDay ? 59 : 0,
+      endOfDay ? 999 : 0,
+      timeZone
+    );
+    if (Number.isNaN(resolved.getTime())) {
+      throw new FamilyWallValidationError(`${field} must be a valid date`);
+    }
+    return resolved;
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new FamilyWallValidationError(`${field} must be a valid date`);
+  }
+  return parsed;
+}
+
+function extractEventEntries(value: unknown, endpoint: string): unknown[] {
+  if (Array.isArray(value)) {
+    return value;
+  }
+  if (isRecord(value)) {
+    for (const key of ["events", "datas", "updatedCreated", "results"]) {
+      if (Array.isArray(value[key])) {
+        return value[key];
+      }
+    }
+  }
+  throw new FamilyWallApiError(
+    "FamilyWall returned a malformed event collection",
+    endpoint
+  );
+}
+
+/**
+ * Credentials are only ever attached to FamilyWall's own hosts. Media may be
+ * served from a CDN that must not receive the session cookie or CSRF token.
+ */
+function isCredentialedMediaOrigin(url: URL): boolean {
+  return (
+    url.protocol === "https:" &&
+    (url.hostname === "familywall.com" || url.hostname.endsWith(".familywall.com"))
+  );
+}
+
+function assertSafeMediaUrl(value: string, field: string): URL {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new FamilyWallValidationError(`${field} must be a valid absolute URL`);
+  }
+  if (url.protocol !== "https:") {
+    throw new FamilyWallValidationError(`${field} must use https`);
+  }
+  if (url.username !== "" || url.password !== "") {
+    throw new FamilyWallValidationError(`${field} must not embed credentials`);
+  }
+  return url;
+}
+
+/** Reduces a server-supplied name to a bare basename so it cannot traverse paths. */
+function sanitizeFilename(value: string | undefined): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const basename = value.split(/[\\/]/).pop()?.replace(/^\.+/, "").trim();
+  return basename === undefined || basename === "" ? undefined : basename;
+}
+
+/** Enforces a byte ceiling while reading, independent of any Content-Length. */
+function boundedStream(
+  source: ReadableStream<Uint8Array>,
+  maxBytes: number | undefined,
+  endpoint: string
+): ReadableStream<Uint8Array> {
+  if (maxBytes === undefined) {
+    return source;
+  }
+  let read = 0;
+  const reader = source.getReader();
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      const { done, value } = await reader.read();
+      if (done) {
+        controller.close();
+        return;
+      }
+      read += value.byteLength;
+      if (read > maxBytes) {
+        await reader.cancel();
+        controller.error(
+          new FamilyWallApiError(
+            "Attachment exceeded the maximum download size",
+            endpoint
+          )
+        );
+        return;
+      }
+      controller.enqueue(value);
+    },
+    async cancel(reason) {
+      await reader.cancel(reason);
+    },
+  });
+}
+
 export default class FamilyWallClient {
   private readonly baseUrl: string;
   private readonly fetcher: typeof fetch;
@@ -596,6 +785,68 @@ export default class FamilyWallClient {
     return json.a00.r.r;
   }
 
+  private resolveCalendarRange(options: GetCalendarRangeOptions): {
+    from: Date;
+    to: Date;
+  } {
+    const { startDate, endDate, days } = options;
+    if (days !== undefined && endDate !== undefined) {
+      throw new FamilyWallValidationError(
+        "days cannot be combined with endDate"
+      );
+    }
+    if (startDate === undefined && endDate === undefined && days === undefined) {
+      throw new FamilyWallValidationError(
+        "A range requires startDate, endDate, or days"
+      );
+    }
+    if (days !== undefined && (!Number.isInteger(days) || days <= 0)) {
+      throw new FamilyWallValidationError("days must be a positive integer");
+    }
+
+    const from =
+      startDate === undefined
+        ? new Date()
+        : resolveRangeBoundary(startDate, "startDate", this.timezone, false);
+    const to =
+      days !== undefined
+        ? new Date(from.getTime() + days * 86_400_000)
+        : endDate === undefined
+          ? new Date()
+          : resolveRangeBoundary(endDate, "endDate", this.timezone, true);
+
+    if (to.getTime() < from.getTime()) {
+      throw new FamilyWallValidationError("endDate must not precede startDate");
+    }
+    return { from, to };
+  }
+
+  /**
+   * Ranged calendar read. This is separate from `getCalendar` because
+   * `evtlistinterval` returns an event collection rather than a sync payload,
+   * and adapting it into the sync shape would mean fabricating sync metadata.
+   * Server-side recurrence and overlap semantics are not established.
+   */
+  async getCalendarEventsInRange(
+    calendarId: string,
+    options: GetCalendarRangeOptions = {}
+  ): Promise<CalendarEvent[]> {
+    assertNonBlank(calendarId, "calendarId");
+    const { from, to } = this.resolveCalendarRange(options);
+
+    const response = await this.apiFetch("evtlistinterval", {
+      partnerScope: "Family",
+      calendarId,
+      a00from: from.toISOString(),
+      a00to: to.toISOString(),
+    });
+    const result = await this.readApiResponse<unknown>(
+      "evtlistinterval",
+      response
+    );
+    return extractEventEntries(result, "evtlistinterval") as CalendarEvent[];
+  }
+
   async getLists(options: GetListsOptions = {}): Promise<ListSummary[]> {
     const requestedType = options?.type;
     if (requestedType !== undefined) {
@@ -714,6 +965,58 @@ export default class FamilyWallClient {
     return parseListSummary(created, input.name, input.type, "taskcreatelist");
   }
 
+  async addListItem(listId: string, input: AddListItemRequest): Promise<ListItem> {
+    assertNonBlank(listId, "listId");
+    assertNonBlank(input?.text, "text");
+    const quantity = input.quantity;
+    if (
+      quantity !== undefined &&
+      typeof quantity !== "string" &&
+      typeof quantity !== "number"
+    ) {
+      throw new FamilyWallValidationError("quantity must be a string or number");
+    }
+
+    const response = await this.apiFetch("taskcreate", {
+      partnerScope: "Family",
+      a00taskListId: listId,
+      a00text: input.text,
+      ...(quantity === undefined ? {} : { a00quantity: quantity }),
+    });
+    const result = await this.readApiResponse<unknown>("taskcreate", response);
+    const created = extractCreateResult(result as RawListCreateResult);
+    if (typeof created === "string") {
+      return {
+        id: created,
+        text: input.text,
+        completed: false,
+        ...(quantity === undefined ? {} : { quantity }),
+      };
+    }
+    return parseListItem(created, "taskcreate");
+  }
+
+  /**
+   * Takes an explicit completion state rather than toggling, so that repeating
+   * a request cannot invert the item. `taskmark` is documented only with
+   * `a00taskId`, so no list identifier is sent and none is accepted here.
+   * Success is the absence of an API error; the acknowledgement shape is not
+   * established, so nothing is fabricated from it.
+   */
+  async setListItemCompleted(itemId: string, completed: boolean): Promise<void> {
+    assertNonBlank(itemId, "itemId");
+    if (typeof completed !== "boolean") {
+      throw new FamilyWallValidationError("completed must be a boolean");
+    }
+
+    const response = await this.apiFetch("taskmark", {
+      partnerScope: "Family",
+      a00taskId: itemId,
+      a00complete: completed,
+    });
+    await this.readApiResponse<unknown>("taskmark", response);
+  }
+
   /**
    * Fetches the account's current thread summaries. This is intentionally not a
    * Family facade method: the reference protocol does not establish family scope.
@@ -752,6 +1055,127 @@ export default class FamilyWallClient {
     }
     const size = getNumber(page, ["size"]), count = getNumber(page, ["count"]), start = getNumber(page, ["start"]);
     return { messages: page.datas.map((message) => parseMessage(message, "immessagelist2")), ...(size === undefined ? {} : { size }), ...(count === undefined ? {} : { count }), ...(start === undefined ? {} : { start }) };
+  }
+
+  /**
+   * Sends one text message. This is never retried automatically: a lost
+   * response may follow a successful send, and retrying would risk delivering
+   * the message twice. Callers that see a network failure must decide for
+   * themselves whether to re-read the thread before resending.
+   */
+  async sendMessage(threadId: string, input: SendMessageRequest): Promise<Message> {
+    assertNonBlank(threadId, "threadId");
+    assertNonBlank(input?.text, "text");
+
+    const response = await this.apiFetch("imsend", {
+      partnerScope: "Family",
+      a00threadId: threadId,
+      a00text: input.text,
+    });
+    const result = await this.readApiResponse<unknown>("imsend", response, true);
+    if (typeof result === "string" && result.trim() !== "") {
+      return { id: result, text: input.text, attachments: [] };
+    }
+    return parseMessage(result, "imsend");
+  }
+
+  /**
+   * Streams one attachment's bytes. Session credentials are attached only for
+   * FamilyWall's own hosts, redirects are resolved manually so that a redirect
+   * off-origin drops those credentials rather than leaking them to a CDN, and
+   * the size ceiling is enforced while reading because Content-Length may be
+   * absent or wrong.
+   */
+  async downloadAttachment(
+    attachment: MessageAttachment,
+    options: DownloadAttachmentOptions = {}
+  ): Promise<AttachmentDownload> {
+    const source = attachment?.pictureUrl;
+    if (typeof source !== "string" || source.trim() === "") {
+      throw new FamilyWallValidationError(
+        "attachment must have a pictureUrl to download"
+      );
+    }
+    const { maxBytes } = options;
+    if (
+      maxBytes !== undefined &&
+      (!Number.isInteger(maxBytes) || maxBytes <= 0)
+    ) {
+      throw new FamilyWallValidationError("maxBytes must be a positive integer");
+    }
+
+    let target = assertSafeMediaUrl(source, "pictureUrl");
+    let response: Response | undefined;
+
+    for (let redirects = 0; redirects <= 5; redirects += 1) {
+      const headers: Record<string, string> = { accept: "*/*" };
+      if (this.jsessionid && isCredentialedMediaOrigin(target)) {
+        headers["tokencsrf"] = this.jsessionid;
+        headers["cookie"] = this.cookie!;
+      }
+
+      response = await this.fetcher(target.toString(), {
+        method: "GET",
+        headers,
+        redirect: "manual",
+        ...(options.signal === undefined ? {} : { signal: options.signal }),
+      });
+
+      if (response.status < 300 || response.status >= 400) {
+        break;
+      }
+      const location = response.headers.get("location");
+      if (location === null) {
+        throw new FamilyWallApiError(
+          "FamilyWall returned a redirect without a destination",
+          "attachment-download",
+          { status: response.status }
+        );
+      }
+      target = assertSafeMediaUrl(
+        new URL(location, target).toString(),
+        "redirect location"
+      );
+      response = undefined;
+    }
+
+    if (response === undefined) {
+      throw new FamilyWallApiError(
+        "Attachment download exceeded the redirect limit",
+        "attachment-download"
+      );
+    }
+    if (!response.ok) {
+      throw new FamilyWallApiError(
+        `Attachment download failed with HTTP ${response.status}`,
+        "attachment-download",
+        { status: response.status }
+      );
+    }
+    if (response.body === null) {
+      throw new FamilyWallApiError(
+        "FamilyWall returned an attachment without a body",
+        "attachment-download",
+        { status: response.status }
+      );
+    }
+
+    const mimeType =
+      response.headers.get("content-type")?.split(";")[0]?.trim() ||
+      attachment.mimeType;
+    const declaredSize = getNumber(
+      { length: response.headers.get("content-length") ?? "" },
+      ["length"]
+    );
+    const filename = sanitizeFilename(attachment.name);
+
+    return {
+      url: target.toString(),
+      ...(mimeType === undefined || mimeType === "" ? {} : { mimeType }),
+      ...(declaredSize === undefined ? {} : { size: declaredSize }),
+      ...(filename === undefined ? {} : { filename }),
+      body: boundedStream(response.body, maxBytes, "attachment-download"),
+    };
   }
 
   async getAllFamily(): Promise<AllFamilyResponse> {
