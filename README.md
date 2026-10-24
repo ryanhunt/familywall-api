@@ -7,7 +7,7 @@ Forked from [Tomsoz/familywall-api](https://github.com/Tomsoz/familywall-api) an
 
 This client now supports messaging (threads, message history, text sending, and attachment downloads), family lists including item add and completion, and date-range calendar queries, in addition to the original calendar and family-profile features.
 
-Not yet supported: editing or deleting list items, message pagination beyond a single bounded page, planned meals, and recipes. These are not omissions of effort — no endpoint for them appears in the available reference material, and implementing against a guessed endpoint risks destructive behavior on real family data. See [`docs/plans/remaining-api-support.md`](./docs/plans/remaining-api-support.md) for the evidence behind each.
+Not yet supported: editing or deleting list items, message pagination beyond a single bounded page, planned meals, and recipes. These are not omissions of effort — no endpoint for them appears in the available reference material, and implementing against a guessed endpoint risks destructive behavior on real family data. See [`docs/plans/remaining-api-support.md`](./docs/plans/remaining-api-support.md) for the evidence behind each. A catalog of every method the FamilyWall web app registers, with parameter names, is in [`docs/api-method-catalog.md`](./docs/api-method-catalog.md).
 
 ## Installation
 
